@@ -1,0 +1,33 @@
+Package: vastRapp
+Title: VAST Interactive Builder
+Version: 0.1.0
+Authors@R: c(
+    person("Luebber", "Finn", email = "f.luebber2@uni-luebeck.de",
+           role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0003-0893-2120"))
+    )
+Description: An interactive Shiny application for building, comparing, and
+    translating Visual Argument Structure Tool (VAST) models. Provides a
+    visual interface for constructing VAST diagrams, AI-assisted translation
+    between narrative theory text and formal VAST representations, and
+    theory rigor assessment. Part of the VAST ecosystem alongside 'vastR'
+    (core model construction and rendering) and 'vastRai' (AI bridge layer).
+License: MIT + file LICENSE
+URL: https://github.com/finn-luebber/vastRapp
+BugReports: https://github.com/finn-luebber/vastRapp/issues
+Depends:
+    R (>= 4.1.0)
+Imports:
+    bslib,
+    htmltools,
+    jsonlite,
+    shiny,
+    vastR,
+    vastRai
+Remotes:
+    finn-luebber/vastR,
+    finn-luebber/vastRai
+Encoding: UTF-8
+Language: en
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2

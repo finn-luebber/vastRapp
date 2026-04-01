@@ -1,0 +1,27 @@
+# R
+.Rhistory
+.Rdata
+.RData
+.Ruserdata
+.Rproj.user/
+*.Rproj
+
+# Package build artifacts
+*.tar.gz
+*.Rcheck/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Other
+error_iterations.txt
+vast_builder_ui_spec.md
+vast_ecosystem_reference.md
