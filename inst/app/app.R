@@ -88,14 +88,25 @@ vizOutput <- function(id, width = "100%", height = "500px") {
       id = id,
       class = "viz-container",
       style = sprintf(
-        "width: %s; height: %s; overflow: auto; border: 1px solid #ddd; border-radius: 8px; background: white; display: flex; align-items: center; justify-content: center;",
+        "width: %s; height: %s; border: 1px solid #ddd; border-radius: 8px; background: white;",
         width, height
       ),
       tags$div(
-        id = paste0(id, "_placeholder"),
-        style = "color: #999; text-align: center; padding: 2rem;",
-        tags$p(style = "font-size: 1.1rem;", "No model to display."),
-        tags$p(style = "font-size: 0.85rem;", "Use the Build tab or load a file to get started.")
+        id = paste0(id, "_inner"),
+        class = "viz-inner",
+        tags$div(
+          id = paste0(id, "_placeholder"),
+        style = "color: #999; text-align: center; padding: 2rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);",
+          tags$p(style = "font-size: 1.1rem;", "No model to display."),
+          tags$p(style = "font-size: 0.85rem;", "Use the Build tab or load a file to get started.")
+        )
+      ),
+      tags$div(class = "viz-controls",
+        tags$button(onclick = sprintf("vizZoom('%s', -1)", id), title = "Zoom out", HTML("&#8722;")),
+        tags$span(id = paste0(id, "_zoom_level"), class = "viz-zoom-level", "100%"),
+        tags$button(onclick = sprintf("vizZoom('%s', 1)", id), title = "Zoom in", HTML("&#43;")),
+        tags$button(onclick = sprintf("vizResetView('%s')", id), title = "Fit to view", HTML("&#8634;")),
+        tags$button(onclick = sprintf("vizFullscreen('%s')", id), title = "Fullscreen", HTML("&#x26F6;"))
       )
     ),
     tags$div(
@@ -119,28 +130,173 @@ vizHead <- function() {
         return vizInstance;
       }
 
+      // --- Pan & Zoom state per container ---
+      var vizStates = {};
+
+      function getVizState(containerId) {
+        if (!vizStates[containerId]) {
+          vizStates[containerId] = {
+            scale: 1, panX: 0, panY: 0,
+            dragging: false, dragStartX: 0, dragStartY: 0,
+            panStartX: 0, panStartY: 0,
+            svgNaturalW: 0, svgNaturalH: 0
+          };
+        }
+        return vizStates[containerId];
+      }
+
+      function updateTransform(containerId) {
+        var inner = document.getElementById(containerId + "_inner") ||
+                    document.querySelector("#" + containerId + "_fullscreen .viz-inner");
+        if (!inner) return;
+        var svg = inner.querySelector("svg");
+        if (!svg) return;
+        var st = getVizState(containerId);
+        svg.style.transform = "translate(" + st.panX + "px," + st.panY + "px) scale(" + st.scale + ")";
+        var levelEl = document.getElementById(containerId + "_zoom_level");
+        if (levelEl) levelEl.textContent = Math.round(st.scale * 100) + "%";
+        var fsLevel = document.getElementById(containerId + "_fs_zoom_level");
+        if (fsLevel) fsLevel.textContent = Math.round(st.scale * 100) + "%";
+      }
+
+      function fitToView(containerId) {
+        var inner = document.getElementById(containerId + "_inner");
+        if (!inner) return;
+        var svg = inner.querySelector("svg");
+        if (!svg) return;
+        var st = getVizState(containerId);
+        var cw = inner.clientWidth;
+        var ch = inner.clientHeight;
+        var sw = st.svgNaturalW || svg.getBBox().width || svg.viewBox.baseVal.width || 800;
+        var sh = st.svgNaturalH || svg.getBBox().height || svg.viewBox.baseVal.height || 600;
+        var scale = Math.min(cw / sw, ch / sh, 1) * 0.95;
+        st.scale = scale;
+        st.panX = (cw - sw * scale) / 2;
+        st.panY = (ch - sh * scale) / 2;
+        updateTransform(containerId);
+      }
+
+      function fitToViewFullscreen(containerId) {
+        var fs = document.getElementById(containerId + "_fullscreen");
+        if (!fs) return;
+        var inner = fs.querySelector(".viz-inner");
+        if (!inner) return;
+        var svg = inner.querySelector("svg");
+        if (!svg) return;
+        var st = getVizState(containerId + "_fs");
+        var cw = inner.clientWidth;
+        var ch = inner.clientHeight;
+        var origSt = getVizState(containerId);
+        var sw = origSt.svgNaturalW || 800;
+        var sh = origSt.svgNaturalH || 600;
+        var scale = Math.min(cw / sw, ch / sh, 1) * 0.95;
+        st.scale = scale;
+        st.svgNaturalW = sw;
+        st.svgNaturalH = sh;
+        st.panX = (cw - sw * scale) / 2;
+        st.panY = (ch - sh * scale) / 2;
+        svg.style.transform = "translate(" + st.panX + "px," + st.panY + "px) scale(" + st.scale + ")";
+        var fsLevel = document.getElementById(containerId + "_fs_zoom_level");
+        if (fsLevel) fsLevel.textContent = Math.round(st.scale * 100) + "%";
+      }
+
+      function setupPanZoom(innerEl, stateId) {
+        innerEl.addEventListener("wheel", function(e) {
+          e.preventDefault();
+          var st = getVizState(stateId);
+          var rect = innerEl.getBoundingClientRect();
+          var mx = e.clientX - rect.left;
+          var my = e.clientY - rect.top;
+          var oldScale = st.scale;
+          var delta = e.deltaY > 0 ? 0.9 : 1.1;
+          var newScale = Math.max(0.1, Math.min(10, oldScale * delta));
+          st.panX = mx - (mx - st.panX) * (newScale / oldScale);
+          st.panY = my - (my - st.panY) * (newScale / oldScale);
+          st.scale = newScale;
+          var svg = innerEl.querySelector("svg");
+          if (svg) {
+            svg.style.transform = "translate(" + st.panX + "px," + st.panY + "px) scale(" + st.scale + ")";
+          }
+          var levelEl = document.getElementById(stateId + "_zoom_level") ||
+                        document.getElementById(stateId.replace("_fs", "") + "_fs_zoom_level");
+          if (levelEl) levelEl.textContent = Math.round(st.scale * 100) + "%";
+        }, {passive: false});
+
+        innerEl.addEventListener("mousedown", function(e) {
+          if (e.button !== 0) return;
+          var st = getVizState(stateId);
+          st.dragging = true;
+          st.dragStartX = e.clientX;
+          st.dragStartY = e.clientY;
+          st.panStartX = st.panX;
+          st.panStartY = st.panY;
+          e.preventDefault();
+        });
+
+        window.addEventListener("mousemove", function(e) {
+          var st = getVizState(stateId);
+          if (!st.dragging) return;
+          st.panX = st.panStartX + (e.clientX - st.dragStartX);
+          st.panY = st.panStartY + (e.clientY - st.dragStartY);
+          var svg = innerEl.querySelector("svg");
+          if (svg) {
+            svg.style.transform = "translate(" + st.panX + "px," + st.panY + "px) scale(" + st.scale + ")";
+          }
+        });
+
+        window.addEventListener("mouseup", function(e) {
+          var st = getVizState(stateId);
+          st.dragging = false;
+        });
+      }
+    ')),
+    tags$script(HTML('
       function renderDot(containerId, dotString) {
         var container = document.getElementById(containerId);
+        var inner = document.getElementById(containerId + "_inner");
         var placeholder = document.getElementById(containerId + "_placeholder");
         var errorDiv = document.getElementById(containerId + "_error");
         var errorMsg = document.getElementById(containerId + "_error_msg");
-        if (!container) return;
+        if (!container || !inner) return;
         errorDiv.style.display = "none";
         if (!dotString || dotString.trim() === "") {
           if (placeholder) placeholder.style.display = "block";
-          var oldSvg = container.querySelector("svg");
+          var oldSvg = inner.querySelector("svg");
           if (oldSvg) oldSvg.remove();
           return;
         }
         if (placeholder) placeholder.style.display = "none";
         getViz().renderSVGElement(dotString)
           .then(function(svg) {
-            var oldSvg = container.querySelector("svg");
+            var oldSvg = inner.querySelector("svg");
             if (oldSvg) oldSvg.remove();
-            svg.style.maxWidth = "100%";
-            svg.style.height = "auto";
-            svg.style.maxHeight = (container.clientHeight - 20) + "px";
-            container.appendChild(svg);
+            var vb = svg.viewBox.baseVal;
+            var natW, natH;
+            if (vb && vb.width > 0 && vb.height > 0) {
+              natW = vb.width;
+              natH = vb.height;
+            } else {
+              var rawW = svg.getAttribute("width") || "800";
+              var rawH = svg.getAttribute("height") || "600";
+              natW = parseFloat(rawW) * (rawW.indexOf("pt") > -1 ? 1.33 : 1);
+              natH = parseFloat(rawH) * (rawH.indexOf("pt") > -1 ? 1.33 : 1);
+            }
+            var st = getVizState(containerId);
+            st.svgNaturalW = natW;
+            st.svgNaturalH = natH;
+            svg.removeAttribute("width");
+            svg.removeAttribute("height");
+            svg.style.width = natW + "px";
+            svg.style.height = natH + "px";
+            svg.style.maxWidth = "none";
+            svg.style.maxHeight = "none";
+            svg.style.transformOrigin = "0 0";
+            inner.appendChild(svg);
+            if (!inner._pzInitialized) {
+              setupPanZoom(inner, containerId);
+              inner._pzInitialized = true;
+            }
+            fitToView(containerId);
           })
           .catch(function(error) {
             vizInstance = new Viz();
@@ -149,16 +305,126 @@ vizHead <- function() {
           });
       }
 
+      function vizZoom(containerId, direction) {
+        var st = getVizState(containerId);
+        var inner = document.getElementById(containerId + "_inner");
+        if (!inner) return;
+        var rect = inner.getBoundingClientRect();
+        var mx = rect.width / 2;
+        var my = rect.height / 2;
+        var oldScale = st.scale;
+        var factor = direction > 0 ? 1.25 : 0.8;
+        var newScale = Math.max(0.1, Math.min(10, oldScale * factor));
+        st.panX = mx - (mx - st.panX) * (newScale / oldScale);
+        st.panY = my - (my - st.panY) * (newScale / oldScale);
+        st.scale = newScale;
+        updateTransform(containerId);
+      }
+
+      function vizResetView(containerId) {
+        fitToView(containerId);
+      }
+
+      function vizFullscreen(containerId) {
+        var fs = document.getElementById(containerId + "_fullscreen");
+        if (!fs) return;
+        var inner = document.getElementById(containerId + "_inner");
+        if (!inner) return;
+        var svg = inner.querySelector("svg");
+        if (!svg) return;
+        fs.classList.add("active");
+        var fsInner = fs.querySelector(".viz-inner");
+        var clone = svg.cloneNode(true);
+        var oldClone = fsInner.querySelector("svg");
+        if (oldClone) oldClone.remove();
+        clone.style.transformOrigin = "0 0";
+        fsInner.appendChild(clone);
+        var fsStateId = containerId + "_fs";
+        if (!fsInner._pzInitialized) {
+          setupPanZoom(fsInner, fsStateId);
+          fsInner._pzInitialized = true;
+        }
+        setTimeout(function() { fitToViewFullscreen(containerId); }, 50);
+        fs._escHandler = function(e) {
+          if (e.key === "Escape") vizCloseFullscreen(containerId);
+        };
+        document.addEventListener("keydown", fs._escHandler);
+      }
+
+      function vizCloseFullscreen(containerId) {
+        var fs = document.getElementById(containerId + "_fullscreen");
+        if (!fs) return;
+        fs.classList.remove("active");
+        if (fs._escHandler) {
+          document.removeEventListener("keydown", fs._escHandler);
+          fs._escHandler = null;
+        }
+      }
+    ')),
+    tags$script(HTML(paste0('
+      function vizFsZoom(containerId, direction) {
+        var fsStateId = containerId + "_fs";
+        var st = getVizState(fsStateId);
+        var fs = document.getElementById(containerId + "_fullscreen");
+        if (!fs) return;
+        var inner = fs.querySelector(".viz-inner");
+        if (!inner) return;
+        var rect = inner.getBoundingClientRect();
+        var mx = rect.width / 2;
+        var my = rect.height / 2;
+        var oldScale = st.scale;
+        var factor = direction > 0 ? 1.25 : 0.8;
+        var newScale = Math.max(0.1, Math.min(10, oldScale * factor));
+        st.panX = mx - (mx - st.panX) * (newScale / oldScale);
+        st.panY = my - (my - st.panY) * (newScale / oldScale);
+        st.scale = newScale;
+        var svg = inner.querySelector("svg");
+        if (svg) svg.style.transform = "translate(" + st.panX + "px," + st.panY + "px) scale(" + st.scale + ")";
+        var fsLevel = document.getElementById(containerId + "_fs_zoom_level");
+        if (fsLevel) fsLevel.textContent = Math.round(st.scale * 100) + "%";
+      }
+
+      function vizFsReset(containerId) {
+        fitToViewFullscreen(containerId);
+      }
+
+      function toggleDetailsPanel() {
+        var panel = document.getElementById("details_panel");
+        var btn = document.getElementById("details_toggle_btn");
+        if (!panel || !btn) return;
+        var isCollapsed = panel.getAttribute("data-collapsed") === "true";
+        if (isCollapsed) {
+          panel.setAttribute("data-collapsed", "false");
+          panel.style.height = "";
+          panel.style.overflow = "";
+          btn.innerHTML = "\u25BC Details";
+        } else {
+          // Measure the card header height to keep tabs visible
+          var card = panel.querySelector(".card, .bslib-card");
+          var header = card ? card.querySelector(".card-header") : null;
+          var headerH = header ? header.offsetHeight + 2 : 38;
+          panel.setAttribute("data-collapsed", "true");
+          panel.style.height = headerH + "px";
+          panel.style.overflow = "hidden";
+          btn.innerHTML = "\u25B6 Details";
+        }
+      }
+
       Shiny.addCustomMessageHandler("renderDot", function(msg) {
         renderDot(msg.id, msg.dot);
       });
 
       Shiny.addCustomMessageHandler("downloadSVG", function(msg) {
-        var container = document.getElementById(msg.id);
-        if (!container) return;
-        var svg = container.querySelector("svg");
+        var inner = document.getElementById(msg.id + "_inner");
+        if (!inner) return;
+        var svg = inner.querySelector("svg");
         if (!svg) { alert("No diagram to export."); return; }
-        var svgData = new XMLSerializer().serializeToString(svg);
+        var clone = svg.cloneNode(true);
+        clone.style.transform = "none";
+        var st = getVizState(msg.id);
+        if (st.svgNaturalW) clone.setAttribute("width", st.svgNaturalW);
+        if (st.svgNaturalH) clone.setAttribute("height", st.svgNaturalH);
+        var svgData = new XMLSerializer().serializeToString(clone);
         var blob = new Blob([svgData], {type: "image/svg+xml"});
         var url = URL.createObjectURL(blob);
         var a = document.createElement("a");
@@ -168,11 +434,16 @@ vizHead <- function() {
       });
 
       Shiny.addCustomMessageHandler("downloadPNG", function(msg) {
-        var container = document.getElementById(msg.id);
-        if (!container) return;
-        var svg = container.querySelector("svg");
+        var inner = document.getElementById(msg.id + "_inner");
+        if (!inner) return;
+        var svg = inner.querySelector("svg");
         if (!svg) { alert("No diagram to export."); return; }
-        var svgData = new XMLSerializer().serializeToString(svg);
+        var clone = svg.cloneNode(true);
+        clone.style.transform = "none";
+        var st = getVizState(msg.id);
+        if (st.svgNaturalW) clone.setAttribute("width", st.svgNaturalW);
+        if (st.svgNaturalH) clone.setAttribute("height", st.svgNaturalH);
+        var svgData = new XMLSerializer().serializeToString(clone);
         var canvas = document.createElement("canvas");
         var ctx = canvas.getContext("2d");
         var img = new Image();
@@ -198,7 +469,6 @@ vizHead <- function() {
         img.src = url;
       });
 
-      // Clipboard helper with fallback for non-HTTPS
       Shiny.addCustomMessageHandler("copyToClipboard", function(msg) {
         if (!msg.text || msg.text === "") return;
         if (navigator.clipboard && window.isSecureContext) {
@@ -227,7 +497,10 @@ vizHead <- function() {
         }
         document.body.removeChild(ta);
       }
-    '))
+    '))),
+    tags$style(HTML("
+      .viz-container svg { transition: none; }
+    "))
   )
 }
 
@@ -477,8 +750,67 @@ ui <- page_fillable(
   ),
   vizHead(),
   tags$head(tags$style(HTML('
-    .viz-container svg { cursor: grab; }
-    .viz-container svg:active { cursor: grabbing; }
+    .viz-container { position: relative; }
+    .viz-container .viz-inner {
+      width: 100%; height: 100%; overflow: hidden;
+      position: relative;
+      cursor: grab;
+    }
+    .viz-container .viz-inner:active { cursor: grabbing; }
+    .viz-container .viz-inner svg {
+      transform-origin: 0 0;
+      pointer-events: none;
+      position: absolute;
+      top: 0; left: 0;
+    }
+    .viz-controls {
+      position: absolute; bottom: 8px; right: 8px; display: flex;
+      gap: 2px; z-index: 10; background: rgba(255,255,255,0.9);
+      border: 1px solid #ddd; border-radius: 6px; padding: 2px;
+    }
+    .viz-controls button {
+      width: 30px; height: 30px; border: none; background: transparent;
+      cursor: pointer; font-size: 1rem; border-radius: 4px; color: #555;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0; line-height: 1;
+    }
+    .viz-controls button:hover { background: #e3f2fd; color: #1976D2; }
+    .viz-zoom-level {
+      font-size: 0.72rem; color: #999; min-width: 36px;
+      text-align: center; display: flex; align-items: center;
+      justify-content: center; user-select: none;
+    }
+    .fullscreen-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      z-index: 10000; background: rgba(255,255,255,0.97);
+      flex-direction: column;
+    }
+    .fullscreen-overlay.active { display: flex; }
+    .fullscreen-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.5rem 1rem; border-bottom: 1px solid #ddd; flex-shrink: 0;
+    }
+    .fullscreen-header h5 { margin: 0; font-weight: 600; }
+    .fullscreen-body {
+      flex: 1; min-height: 0; position: relative;
+    }
+    .fullscreen-body .viz-inner {
+      width: 100%; height: 100%; overflow: hidden;
+      position: relative;
+      cursor: grab;
+    }
+    .fullscreen-body .viz-inner:active { cursor: grabbing; }
+    .fullscreen-body .viz-inner svg {
+      transform-origin: 0 0; pointer-events: none;
+      position: absolute; top: 0; left: 0;
+    }
+    .details-toggle-btn {
+      background: none; border: 1px solid #dee2e6; border-radius: 6px;
+      padding: 0.2rem 0.6rem; font-size: 0.8rem; color: #666;
+      cursor: pointer; display: flex; align-items: center; gap: 0.3rem;
+    }
+    .details-toggle-btn:hover { background: #f8f9fa; color: #333; }
+    #details_panel .card-body { transition: none; }
     .slot-indicator {
       background: #e3f2fd; border: 1px solid #90caf9; border-radius: 6px;
       padding: 0.4rem 0.75rem; margin-bottom: 0.75rem; font-weight: 600;
@@ -521,7 +853,8 @@ ui <- page_fillable(
       display: flex; align-items: flex-end; gap: 0.35rem; margin-bottom: 0.35rem;
     }
     .selector-row .form-group { flex: 1; margin-bottom: 0; }
-    #details_tabs { margin-top: 0.5rem; flex-shrink: 0; }
+    #details_panel { margin-top: 0.5rem; flex-shrink: 0; }
+    #details_tabs { flex-shrink: 0; }
     #details_tabs .card-header { padding: 0.25rem 0.5rem; }
     #details_tabs .nav-link { padding: 0.3rem 0.75rem; font-size: 0.85rem; }
     #build_accordion .accordion-button { padding: 0.4rem 0.75rem; font-size: 0.88rem; font-weight: 600; }
@@ -530,6 +863,28 @@ ui <- page_fillable(
   '))),
 
   tags$div(id = "toast_container"),
+
+  # --- Fullscreen diagram overlay ---
+  tags$div(id = "diagram_fullscreen", class = "fullscreen-overlay",
+    tags$div(class = "fullscreen-header",
+      tags$h5("Diagram"),
+      tags$div(style = "display: flex; align-items: center; gap: 0.5rem;",
+        tags$div(style = "display: flex; gap: 2px; background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; padding: 2px;",
+          tags$button(onclick = "vizFsZoom('diagram', -1)", title = "Zoom out",
+            style = "width:30px;height:30px;border:none;background:transparent;cursor:pointer;font-size:1rem;border-radius:4px;color:#555;", HTML("&#8722;")),
+          tags$span(id = "diagram_fs_zoom_level", class = "viz-zoom-level", "100%"),
+          tags$button(onclick = "vizFsZoom('diagram', 1)", title = "Zoom in",
+            style = "width:30px;height:30px;border:none;background:transparent;cursor:pointer;font-size:1rem;border-radius:4px;color:#555;", HTML("&#43;")),
+          tags$button(onclick = "vizFsReset('diagram')", title = "Fit to view",
+            style = "width:30px;height:30px;border:none;background:transparent;cursor:pointer;font-size:1rem;border-radius:4px;color:#555;", HTML("&#8634;"))
+        ),
+        tags$button(onclick = "vizCloseFullscreen('diagram')", class = "btn btn-outline-secondary btn-sm", "Close")
+      )
+    ),
+    tags$div(class = "fullscreen-body",
+      tags$div(class = "viz-inner")
+    )
+  ),
 
   # --- Header ---
   div(
@@ -798,35 +1153,40 @@ ui <- page_fillable(
       div(style = "flex: 1; min-height: 0;",
         vizOutput("diagram", height = "100%")
       ),
-      div(style = "display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;",
+      div(style = "display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; align-items: center; position: relative; z-index: 5;",
         actionButton("export_png", "\U0001F4F7 Export PNG", class = "btn-outline-secondary btn-sm"),
         actionButton("export_svg", "\U0001F5BC Export SVG", class = "btn-outline-secondary btn-sm"),
         downloadButton("export_report", "\U0001F4C4 Export Report", class = "btn-outline-secondary btn-sm"),
-        actionButton("goto_v2n", "\u2192 Narrative Prompt", class = "btn-outline-primary btn-sm")
+        actionButton("goto_v2n", "\u2192 Narrative Prompt", class = "btn-outline-primary btn-sm"),
+        tags$button(id = "details_toggle_btn", class = "details-toggle-btn",
+          onclick = "toggleDetailsPanel()", style = "margin-left: auto;",
+          HTML("\u25BC Details"))
       ),
 
-      # Bottom area: Details tabs
-      navset_card_tab(
-        id = "details_tabs",
-        height = "250px",
+      # Bottom area: Details tabs (collapsible)
+      div(id = "details_panel",
+        navset_card_tab(
+          id = "details_tabs",
+          height = "250px",
 
-        nav_panel(title = "Notes", value = "notes",
-          div(style = "overflow-y: auto; height: 100%; padding: 0.25rem;",
-            uiOutput("translation_notes_ui")
-          )
-        ),
+          nav_panel(title = "Notes", value = "notes",
+            div(style = "overflow-y: auto; height: 100%; padding: 0.25rem;",
+              uiOutput("translation_notes_ui")
+            )
+          ),
 
-        nav_panel(title = "Comparison", value = "comparison",
-          div(style = "overflow-y: auto; height: 100%; padding: 0.25rem;",
-            uiOutput("model_comparison_ui")
-          )
-        ),
+          nav_panel(title = "Comparison", value = "comparison",
+            div(style = "overflow-y: auto; height: 100%; padding: 0.25rem;",
+              uiOutput("model_comparison_ui")
+            )
+          ),
 
-        nav_panel(title = "R Code", value = "rcode",
-          div(style = "overflow-y: auto; height: 100%; padding: 0.25rem;",
-            uiOutput("r_code_toggle_ui"),
-            verbatimTextOutput("r_code_display"),
-            actionButton("copy_r_code", "Copy code", class = "btn-outline-secondary btn-sm")
+          nav_panel(title = "R Code", value = "rcode",
+            div(style = "overflow-y: auto; height: 100%; padding: 0.25rem;",
+              uiOutput("r_code_toggle_ui"),
+              verbatimTextOutput("r_code_display"),
+              actionButton("copy_r_code", "Copy code", class = "btn-outline-secondary btn-sm")
+            )
           )
         )
       )

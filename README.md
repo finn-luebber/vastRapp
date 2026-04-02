@@ -70,7 +70,16 @@ The app has a two-panel layout:
 5. Add groups, IS/OUGHT statements, diamonds, and noise as needed
 6. Export via the buttons above the diagram
 
-## Reference
+## Acknowledgments
+
+The code for this app/package was developed with substantial assistance
+from Claude (Anthropic). Claude generated the initial package and app
+architecture, and the majority of the function implementations based on 
+the author's design decisions, specifications, and iterative feedback. 
+The author is responsible for the overall design, all conceptual decisions, 
+testing, and maintenance.
+
+## References
 
 Leising, D., Grenke, O., & Cramer, M. (2023). Visual Argument Structure Tool (VAST) Version 1.0. *Meta-Psychology*, 7. [doi:10.15626/MP.2021.2911](https://doi.org/10.15626/MP.2021.2911)
 Musfeld, P., Leising, D., Grenke, O., & Heene, M. (in preparation). Indicators for the Assessment of Theoretical Rigor (v3.0).(https://www.researchgate.net/publication/400424233_Indicators_for_the_Assessment_of_Theoretical_Rigor)

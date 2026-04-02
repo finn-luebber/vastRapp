@@ -10,6 +10,12 @@
 *.tar.gz
 *.Rcheck/
 
+#renv
+inst/app/renv/
+inst/app/.Rprofile
+inst/app/.Rproj.user/
+inst/app/app.Rproj
+
 # OS
 .DS_Store
 Thumbs.db

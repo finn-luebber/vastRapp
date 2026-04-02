@@ -1,6 +1,6 @@
 Package: vastRapp
 Title: VAST Interactive Builder
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: c(
     person("Luebber", "Finn", email = "f.luebber2@uni-luebeck.de",
            role = c("aut", "cre"),
